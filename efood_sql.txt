@@ -1,0 +1,255 @@
+SELECT * FROM `efood2022-388619.main_assessment.orders` 
+
+SELECT cuisine, COUNT(DISTINCT order_id) AS total_orders
+FROM `main_assessment.orders`
+GROUP BY cuisine
+ORDER BY total_orders DESC
+
+SELECT city, COUNT(DISTINCT order_id) AS total_orders
+FROM `main_assessment.orders`
+GROUP BY city
+HAVING COUNT(DISTINCT order_id) > 1000
+ORDER BY total_orders DESC
+
+--Basket: The average amount of goods per order. It is calculated by dividing the total amount by the number of orders.
+--efood_basket
+
+SELECT city,
+  SUM(amount) AS total_amount,
+  COUNT(order_id) AS total_orders,
+  SUM(amount) / COUNT(order_id) AS efood_basket
+FROM `main_assessment.orders`
+GROUP BY city
+HAVING COUNT(order_id) > 1000
+ORDER BY efood_basket DESC;
+
+
+--breakfast_basket
+SELECT city,
+  SUM(amount) AS total_amount,
+  COUNT(order_id) AS total_orders,
+  SUM(amount) / COUNT(order_id) AS breakfast_basket
+FROM `main_assessment.orders`
+WHERE cuisine= 'Breakfast'
+GROUP BY city
+HAVING COUNT(order_id) > 1000
+ORDER BY breakfast_basket DESC;
+
+--efood_freq
+SELECT city,
+  COUNT(order_id) AS total_orders,
+  COUNT(DISTINCT user_id) AS total_users,
+  COUNT(order_id) / COUNT( DISTINCT user_id) AS efood_freq
+FROM `main_assessment.orders`
+GROUP BY city
+HAVING COUNT( order_id) > 1000
+ORDER BY frequency DESC;
+
+
+--breakfast_freq
+SELECT city,
+  COUNT(order_id) AS total_orders,
+  COUNT(DISTINCT user_id) AS total_users,
+  COUNT(order_id) / COUNT( DISTINCT user_id) AS breakfast_freq
+FROM `main_assessment.orders`
+WHERE cuisine='Breakfast'
+GROUP BY city
+HAVING COUNT( order_id) > 1000
+ORDER BY breakfast_freq DESC;
+
+--Create a table
+CREATE TABLE `efood2022-388619.main_assessment.new` (
+  city STRING,
+  breakfast_basket DECIMAL(10, 2),
+  efood_basket DECIMAL(10,2),
+  breakfast_freq DECIMAL(10, 2),
+  efood_freq DECIMAL(10,2)
+  );
+
+
+--Users that exceed 3 orders := (Users of Frequency >3) / Users *100 efood
+WITH efood_metrics AS (
+  SELECT city,
+    COUNT(order_id) AS total_orders,
+    COUNT(DISTINCT user_id) AS total_users,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS efood_freq
+  FROM `main_assessment.orders`
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+)
+SELECT city,
+  total_orders,
+  total_users,
+  (SUM(CASE WHEN efood_freq > 3 THEN 1 ELSE 0 END) / total_users) * 100 AS efood_users3freq_perc
+FROM efood_metrics
+GROUP BY city, total_orders, total_users
+ORDER BY efood_users3freq_perc DESC;
+
+----Users that exceed 3 orders := (Users of Frequency >3) / Users *100 breakfast
+WITH breakfast_metrics AS (
+  SELECT city,
+    COUNT(order_id) AS total_orders,
+    COUNT(DISTINCT user_id) AS total_users,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS breakfast_freq
+  FROM `main_assessment.orders`
+  WHERE cuisine = 'Breakfast'
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+)
+SELECT city,
+  total_orders,
+  total_users,
+  breakfast_freq,
+  (COUNT(CASE WHEN breakfast_freq > 3 THEN 1 END) / total_users) * 100 AS percent_users_exceeding_3_orders
+FROM breakfast_metrics
+GROUP BY city, total_orders, total_users, breakfast_freq
+ORDER BY percent_users_exceeding_3_orders DESC;
+
+--VIEWS
+
+CREATE VIEW `efood2022-388619.main_assessment.breakfast_orders_view` AS
+WITH efood_metrics AS (
+  SELECT city,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS efood_freq,
+    SUM(amount) / COUNT(order_id) AS efood_basket,
+    (COUNT(CASE WHEN efood_freq > 3 THEN 1 END) / total_users )* 100 AS efood_users3freq_perc
+  FROM `main_assessment.orders`
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+),
+breakfast_metrics AS (
+  SELECT city,
+    COUNT(order_id) AS total_orders_breakfast,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS breakfast_freq,
+    (COUNT(CASE WHEN breakfast_freq > 3 THEN 1 END) / total_users) * 100 AS percent_users_exceeding_3_orders,
+    SUM(amount)/ COUNT(order_id) AS breakfast_basket
+  FROM `main_assessment.orders`
+  WHERE cuisine = 'Breakfast'
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+)
+SELECT b.city,
+  e.efood_basket,
+  b.breakfast_basket,
+  b.breakfast_freq,
+  e.efood_freq,
+  e.efood_users3freq_perc,
+  b.percent_users_exceeding_3_orders
+FROM breakfast_metrics AS b
+JOIN efood_metrics AS e ON b.city = e.city
+ORDER BY b.total_orders_breakfast DESC
+LIMIT 5;
+
+
+CREATE VIEW `efood2022-388619.main_assessment.breakfast_orders_view2` AS
+WITH efood_metrics AS (
+  SELECT city,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS efood_freq,
+    SUM(amount) / COUNT(order_id) AS efood_basket
+  FROM `main_assessment.orders`
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+),
+breakfast_metrics AS (
+  SELECT city,
+    COUNT(order_id) AS total_orders_breakfast,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS breakfast_freq,
+    SUM(amount) / COUNT(order_id) AS breakfast_basket
+  FROM `main_assessment.orders`
+  WHERE cuisine = 'Breakfast'
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+),
+users_metrics AS (
+  SELECT city,
+    COUNT(DISTINCT user_id) AS total_users,
+    SUM(CASE WHEN order_count > 3 THEN 1 ELSE 0 END) AS users_exceeding_3_orders,
+    (SUM(CASE WHEN order_count > 3 THEN 1 ELSE 0 END) / COUNT(DISTINCT user_id)) * 100 AS percent_users_exceeding_3_orders
+  FROM (
+    SELECT city, user_id, COUNT(order_id) AS order_count
+    FROM `main_assessment.orders`
+    GROUP BY city, user_id
+  )
+  GROUP BY city
+  HAVING COUNT(order_count) > 1000
+)
+SELECT b.city,
+  b.breakfast_basket,
+  e.efood_basket,
+  b.breakfast_freq,
+  e.efood_freq,
+  u.percent_users_exceeding_3_orders
+FROM breakfast_metrics AS b
+JOIN efood_metrics AS e ON b.city = e.city
+JOIN users_metrics AS u ON b.city = u.city
+ORDER BY b.total_orders_breakfast DESC
+LIMIT 5;
+
+CREATE VIEW `efood2022-388619.main_assessment.breakfast_orders_view1` AS
+WITH efood_metrics AS (
+  SELECT city,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS efood_freq,
+    SUM(amount) / COUNT(order_id) AS efood_basket
+  FROM `main_assessment.orders`
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+),
+breakfast_metrics AS (
+  SELECT city,
+    COUNT(order_id) AS total_orders_breakfast,
+    COUNT(order_id) / COUNT(DISTINCT user_id) AS breakfast_freq,
+    SUM(amount) / COUNT(order_id) AS breakfast_basket
+  FROM `main_assessment.orders`
+  WHERE cuisine = 'Breakfast'
+  GROUP BY city
+  HAVING COUNT(order_id) > 1000
+),
+users_metrics AS (
+  SELECT city,
+    COUNT(DISTINCT user_id) AS total_users,
+    SUM(CASE WHEN order_count > 3 THEN 1 ELSE 0 END) AS users_exceeding_3_orders,
+    (SUM(CASE WHEN order_count > 3 THEN 1 ELSE 0 END) / COUNT(DISTINCT user_id)) * 100 AS percent_users_exceeding_3_orders
+  FROM (
+    SELECT city, user_id, COUNT(order_id) AS order_count
+    FROM `main_assessment.orders`
+    GROUP BY city, user_id
+  )
+  GROUP BY city
+  HAVING COUNT(order_count) > 1000
+)
+SELECT b.city,
+  b.breakfast_basket,
+  e.efood_basket,
+  b.breakfast_freq,
+  e.efood_freq,
+  u.percent_users_exceeding_3_orders
+FROM breakfast_metrics AS b
+JOIN efood_metrics AS e ON b.city = e.city
+JOIN users_metrics AS u ON b.city = u.city
+ORDER BY b.total_orders_breakfast DESC
+LIMIT 5;
+
+CREATE VIEW `efood2022-388619.main_assessment.breakfast_orders_view2` AS
+WITH top_users AS (
+  SELECT city, user_id, COUNT(order_id) AS order_count
+  FROM `main_assessment.orders`
+  GROUP BY city, user_id
+  ORDER BY order_count DESC
+  LIMIT 10
+),
+city_orders AS (
+  SELECT city, COUNT(order_id) AS total_orders
+  FROM `main_assessment.orders`
+  GROUP BY city
+)
+SELECT t.city,
+  (SUM(t.order_count) / c.total_orders) * 100 AS percentage_of_orders
+FROM top_users AS t
+JOIN city_orders AS c ON t.city = c.city
+GROUP BY t.city, c.total_orders;
+
+
+
+
+
+
